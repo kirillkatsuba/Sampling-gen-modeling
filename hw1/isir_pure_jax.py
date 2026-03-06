@@ -4,22 +4,13 @@ import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import time
 import jax.numpy as jnp
-import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, HMC, NUTS
-import arviz as az
 import jax
 import csv 
 
 jax.config.update("jax_enable_x64", True)
-
-try:
-    from scipy.stats import wasserstein_distance_nd
-    HAS_WASSERSTEIN = True
-except ImportError:
-    HAS_WASSERSTEIN = False
 
 
 @jax.jit
@@ -67,15 +58,9 @@ def sample_exact_gmm(rng_key, num_samples, weights, means, covs):
 
 
 def generate_gmm_config(K, mode="balanced", radius=4.0):
-    """
-    Dynamically generates weights, means, and covariances for K components.
-    Places the means evenly in a circle around the origin.
-    """
-    # 1. Means (arranged in a circle)
     angles = np.linspace(0, 2 * np.pi, K, endpoint=False)
     means = np.column_stack((radius * np.cos(angles), radius * np.sin(angles)))
     
-    # 2. Weights
     if mode == "balanced":
         weights = np.ones(K) / K
     elif mode == "imbalanced":
@@ -84,10 +69,9 @@ def generate_gmm_config(K, mode="balanced", radius=4.0):
         if K > 1:
             weights[1:] = 0.3 / (K - 1)
             
-    # 3. Covariances (cycle through 3 distinct shapes to make it interesting)
-    cov_base1 = np.array([[1.0, 0.6], [0.6, 1.0]])   # Tilted right
-    cov_base2 = np.array([[1.0, -0.6], [-0.6, 1.0]]) # Tilted left
-    cov_base3 = np.array([[0.8, 0.0], [0.0, 0.8]])   # Circle
+    cov_base1 = np.array([[1.0, 0.6], [0.6, 1.0]])
+    cov_base2 = np.array([[1.0, -0.6], [-0.6, 1.0]])
+    cov_base3 = np.array([[0.8, 0.0], [0.0, 0.8]])
     bases = [cov_base1, cov_base2, cov_base3]
     
     covs = [bases[i % 3] for i in range(K)]
@@ -97,10 +81,6 @@ def generate_gmm_config(K, mode="balanced", radius=4.0):
         "means": means.tolist(),
         "covs": covs
     }
-
-# ==========================================
-# 2. Metrics 
-# ==========================================
 
 def fast_ess(samples):
     samples = np.asarray(samples)
@@ -214,7 +194,7 @@ def run_numpyro_sampler(rng_key, potential_fn, init_params, num_samples, sampler
 
 
 def plot_results(samples_dict, target_density_fn, true_samples, title, logs=None, target_type="", param_str=""):
-    os.makedirs("plots_new", exist_ok=True)
+    os.makedirs("plots", exist_ok=True)
     
     ts = np.asarray(true_samples)
     min_x, max_x = ts[:, 0].min(), ts[:, 0].max()
@@ -271,7 +251,7 @@ def plot_results(samples_dict, target_density_fn, true_samples, title, logs=None
         ax.set_ylim(dyn_ylim)
         
     plt.tight_layout()
-    plt.savefig(f'plots_new/{title}.png') 
+    plt.savefig(f'plots/{title}.png') 
     plt.close(fig)
 
 if __name__ == "__main__":
@@ -280,7 +260,6 @@ if __name__ == "__main__":
     rng_key = jax.random.PRNGKey(42)
     metric_logs = []
     
-    # --- NEW: Varying I-SIR Particles ---
     particle_counts = [5, 10, 30, 50, 100]
     
     for N_particles in particle_counts:
@@ -355,3 +334,4 @@ if __name__ == "__main__":
             dict_writer.writeheader()
             dict_writer.writerows(metric_logs)
         print(f"\nAll metrics saved successfully to {csv_filename}")
+        
