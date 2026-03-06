@@ -214,7 +214,7 @@ def run_numpyro_sampler(rng_key, potential_fn, init_params, num_samples, sampler
 
 
 def plot_results(samples_dict, target_density_fn, true_samples, title, logs=None, target_type="", param_str=""):
-    os.makedirs("plots", exist_ok=True)
+    os.makedirs("plots_new", exist_ok=True)
     
     ts = np.asarray(true_samples)
     min_x, max_x = ts[:, 0].min(), ts[:, 0].max()
@@ -263,7 +263,7 @@ def plot_results(samples_dict, target_density_fn, true_samples, title, logs=None
                   aspect='auto', 
                   alpha=0.6)
         
-        ax.scatter(samples[::100, 0], samples[::100, 1], s=5, c='red', alpha=0.4)
+        ax.scatter(samples[1::100, 0], samples[1::100, 1], s=5, c='red', alpha=0.4)
         
         ax.set_title(ax_title)
         
@@ -271,73 +271,83 @@ def plot_results(samples_dict, target_density_fn, true_samples, title, logs=None
         ax.set_ylim(dyn_ylim)
         
     plt.tight_layout()
-    plt.savefig(f'plots/{title}.png') 
-    plt.show()
-
+    plt.savefig(f'plots_new/{title}.png') 
+    plt.close(fig)
 
 if __name__ == "__main__":
     NUM_SAMPLES = 10_000
-    I_SIR_PARTICLES = 15
     X0 = jnp.array([0.0, 0.0])
     rng_key = jax.random.PRNGKey(42)
     metric_logs = []
     
-    print("Running Banana Distribution Ablations...")
-    for nu in tqdm([0.1, 1.0, 2.0, 5.0, 12.0]):
-        rng_key, k1, k2, k3, k4, k5 = jax.random.split(rng_key, 6)
-        
-        target_fn = lambda x: pi_banana(x, nu=nu)
-        true_samples = sample_exact_banana(k1, 10_000, nu=nu)
-        
-        cauchy_sample, cauchy_pdf = get_t_proposal_fns(scale_factor=10.0, df=1.0)
-        student_sample, student_pdf = get_t_proposal_fns(scale_factor=10.0, df=3.0)
-        
-        s_cauchy = run_isir_jax(k2, target_fn, cauchy_sample, cauchy_pdf, X0, NUM_SAMPLES, I_SIR_PARTICLES)
-        s_student = run_isir_jax(k3, target_fn, student_sample, student_pdf, X0, NUM_SAMPLES, I_SIR_PARTICLES)
-        s_hmc = run_numpyro_sampler(k4, get_banana_potential_jax(nu), X0, NUM_SAMPLES, 'HMC')
-        s_nuts = run_numpyro_sampler(k5, get_banana_potential_jax(nu), X0, NUM_SAMPLES, 'NUTS')
-        
-        results = {"I-SIR (Cauchy)": s_cauchy, "I-SIR (Student)": s_student, "HMC": s_hmc, "NUTS": s_nuts}
-        plot_results(results, target_fn, true_samples, 
-                     title=f"Banana Target (nu={nu})",
-                     logs=metric_logs,
-                     target_type="Banana",
-                     param_str=f"nu={nu}")
+    # --- NEW: Varying I-SIR Particles ---
+    particle_counts = [5, 10, 30, 50, 100]
+    
+    for N_particles in particle_counts:
+        print(f"STARTING BENCHMARK WITH I_SIR_PARTICLES = {N_particles}")
 
-    print("\nRunning Gaussian Mixture Ablations (Varying K)...")
-    
-    k_values = [3, 5, 8, 15]
-    
-    for K in k_values:
-        configs = {
-            f"K={K}_Balanced_(Close)": generate_gmm_config(K, mode="balanced", radius=3.0),
-            f"K={K}_Imbalanced_(Wide)": generate_gmm_config(K, mode="imbalanced", radius=7.0)
-        }
-        
-        for name, config in configs.items():
-            print(f"--- GMM Target: {name} ---")
+        print(f"\nRunning Banana Ablations (N={N_particles})...")
+        for nu in tqdm([0.1, 1.0, 2.0, 5.0, 12.0]):
             rng_key, k1, k2, k3, k4, k5 = jax.random.split(rng_key, 6)
             
-            target_fn = get_pi_gmm_jax(**config)
-            true_samples = sample_exact_gmm(k1, 10_000, **config)
+            target_fn = lambda x: pi_banana(x, nu=nu)
+            true_samples = sample_exact_banana(k1, 10_000, nu=nu)
             
-            cauchy_sample, cauchy_pdf = get_t_proposal_fns(scale_factor=15.0, df=1.0)
-            student_sample, student_pdf = get_t_proposal_fns(scale_factor=15.0, df=3.0)
+            cauchy_sample, cauchy_pdf = get_t_proposal_fns(scale_factor=10.0, df=1.0)
+            student_sample, student_pdf = get_t_proposal_fns(scale_factor=10.0, df=3.0)
             
-            s_cauchy = run_isir_jax(k2, target_fn, cauchy_sample, cauchy_pdf, X0, NUM_SAMPLES, I_SIR_PARTICLES)
-            s_student = run_isir_jax(k3, target_fn, student_sample, student_pdf, X0, NUM_SAMPLES, I_SIR_PARTICLES)
-            s_hmc = run_numpyro_sampler(k4, get_gmm_potential_jax(**config), X0, NUM_SAMPLES, 'HMC')
-            s_nuts = run_numpyro_sampler(k5, get_gmm_potential_jax(**config), X0, NUM_SAMPLES, 'NUTS')
+            s_cauchy = run_isir_jax(k2, target_fn, cauchy_sample, cauchy_pdf, X0, NUM_SAMPLES, N_particles)
+            s_student = run_isir_jax(k3, target_fn, student_sample, student_pdf, X0, NUM_SAMPLES, N_particles)
+            
+            s_hmc = run_numpyro_sampler(k4, get_banana_potential_jax(nu), X0, NUM_SAMPLES, 'HMC')
+            s_nuts = run_numpyro_sampler(k5, get_banana_potential_jax(nu), X0, NUM_SAMPLES, 'NUTS')
             
             results = {"I-SIR (Cauchy)": s_cauchy, "I-SIR (Student)": s_student, "HMC": s_hmc, "NUTS": s_nuts}
             
             plot_results(results, target_fn, true_samples, 
-                         title=f"GMM_{name.replace(' ', '_')}",
+                         title=f"Banana_nu={nu}_Particles={N_particles}",
                          logs=metric_logs,
-                         target_type="GMM",
-                         param_str=name)
+                         target_type="Banana",
+                         param_str=f"nu={nu}, N={N_particles}")
+
+        print(f"\nRunning GMM Ablations (N={N_particles})...")
+        k_values = [3, 5, 8, 15]
+        
+        for K in k_values:
+            configs = {
+                f"K={K}_Balanced_(Close)": generate_gmm_config(K, mode="balanced", radius=3.0),
+                f"K={K}_Balanced_(Wide)": generate_gmm_config(K, mode="balanced", radius=7.0),
+                f"K={K}_Balanced_(The Widest)": generate_gmm_config(K, mode="balanced", radius=15.0),
+                f"K={K}_Imbalanced_(Close)": generate_gmm_config(K, mode="imbalanced", radius=3.0),
+                f"K={K}_Imbalanced_(Wide)": generate_gmm_config(K, mode="imbalanced", radius=7.0),
+                f"K={K}_Imbalanced_(The Widest)": generate_gmm_config(K, mode="imbalanced", radius=15.0),
+            }
             
-    csv_filename = "benchmark_metrics.csv"
+            for name, config in tqdm(configs.items()):
+                print(f"--- GMM Target: {name} ---")
+                rng_key, k1, k2, k3, k4, k5 = jax.random.split(rng_key, 6)
+                
+                target_fn = get_pi_gmm_jax(**config)
+                true_samples = sample_exact_gmm(k1, 10_000, **config)
+                
+                cauchy_sample, cauchy_pdf = get_t_proposal_fns(scale_factor=15.0, df=1.0)
+                student_sample, student_pdf = get_t_proposal_fns(scale_factor=15.0, df=3.0)
+                
+                s_cauchy = run_isir_jax(k2, target_fn, cauchy_sample, cauchy_pdf, X0, NUM_SAMPLES, N_particles)
+                s_student = run_isir_jax(k3, target_fn, student_sample, student_pdf, X0, NUM_SAMPLES, N_particles)
+                
+                s_hmc = run_numpyro_sampler(k4, get_gmm_potential_jax(**config), X0, NUM_SAMPLES, 'HMC')
+                s_nuts = run_numpyro_sampler(k5, get_gmm_potential_jax(**config), X0, NUM_SAMPLES, 'NUTS')
+                
+                results = {"I-SIR (Cauchy)": s_cauchy, "I-SIR (Student)": s_student, "HMC": s_hmc, "NUTS": s_nuts}
+                
+                plot_results(results, target_fn, true_samples, 
+                             title=f"GMM_{name.replace(' ', '_')}_Particles={N_particles}",
+                             logs=metric_logs,
+                             target_type="GMM",
+                             param_str=f"{name}, N={N_particles}")
+            
+    csv_filename = "benchmark_metrics_varied_N_big_test.csv"
     if metric_logs:
         keys = metric_logs[0].keys()
         with open(csv_filename, 'w', newline='') as output_file:
